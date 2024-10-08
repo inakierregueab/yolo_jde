@@ -1378,6 +1378,124 @@ class RandomHSV:
         return labels
 
 
+class BboxRandomErase:
+    """
+    Applies random erasing within the given bounding boxes of an image, replacing erased regions with the mean value.
+
+    This class performs random erasing on an image within the areas defined by the bounding boxes.
+    The erased regions are filled with the mean pixel value of the entire image.
+
+    Attributes:
+        p (float): Probability of applying the random erasing. Must be between 0 and 1.
+        min_area (float): Minimum area of the erasing region as a percentage of the bounding box area.
+        max_area (float): Maximum area of the erasing region as a percentage of the bounding box area.
+        min_aspect (float): Minimum aspect ratio of the erasing region.
+        max_aspect (float): Maximum aspect ratio of the erasing region.
+
+    Methods:
+        __call__: Applies the random erasing transformation to an image and its instances (bounding boxes).
+
+    Examples:
+        >>> transform = RandomErase(p=0.5)
+        >>> result = transform({"img": image, "instances": instances})
+        >>> erased_image = result["img"]
+        >>> updated_instances = result["instances"]
+    """
+
+    def __init__(self, p=0.5, min_area=0.02, max_area=0.3, min_aspect=0.3, max_aspect=3.0) -> None:
+        """
+        Initializes the RandomErase class with probability and erasing parameters.
+
+        Args:
+            p (float): The probability of applying the erasing. Must be between 0 and 1.
+            min_area (float): Minimum area of the erasing region as a percentage of the bounding box area.
+            max_area (float): Maximum area of the erasing region as a percentage of the bounding box area.
+            min_aspect (float): Minimum aspect ratio of the erasing region.
+            max_aspect (float): Maximum aspect ratio of the erasing region.
+
+        Raises:
+            AssertionError: If p is not between 0 and 1.
+        """
+        assert 0 <= p <= 1.0, f"The probability should be in range [0, 1], but got {p}."
+        self.p = p
+        self.min_area = min_area
+        self.max_area = max_area
+        self.min_aspect = min_aspect
+        self.max_aspect = max_aspect
+
+    def __call__(self, labels):
+        """
+        Applies random erasing to the image within the given bounding boxes, updating the image.
+
+        Args:
+            labels (Dict): A dictionary containing the following keys:
+                'img' (numpy.ndarray): The image to be processed.
+                'instances' (ultralytics.utils.instance.Instances): An object containing bounding boxes of the objects.
+
+        Returns:
+            Dict: The same dictionary with the updated image:
+                'img' (numpy.ndarray): The image with random erasing applied.
+                'instances' (ultralytics.utils.instance.Instances): The instances remain unchanged.
+
+        Examples:
+            >>> labels = {"img": np.random.rand(640, 640, 3), "instances": Instances(...)}
+            >>> random_erase = RandomErase(p=0.5)
+            >>> erased_labels = random_erase(labels)
+        """
+        img = labels["img"]
+        instances = labels["instances"]
+        bboxes = instances.bboxes  # Assuming bounding boxes are in format [x, y, w, h]
+        mean_value = np.mean(img, axis=(0, 1), dtype=np.float32)
+        h, w = img.shape[:2]
+
+        for bbox in bboxes:
+            if random.random() > self.p:
+                continue
+
+            x, y, box_w, box_h = bbox
+            box_area = box_w * box_h
+
+            # Calculate random erasing area and aspect ratio
+            target_area = random.uniform(self.min_area, self.max_area) * box_area
+            aspect_ratio = random.uniform(self.min_aspect, self.max_aspect)
+
+            erase_h = int(round(np.sqrt(target_area * aspect_ratio)))
+            erase_w = int(round(np.sqrt(target_area / aspect_ratio)))
+
+            if erase_w > box_w or erase_h > box_h or erase_w <= 0 or erase_h <= 0:
+                continue  # Skip if calculated width or height is invalid
+
+            # Introduce some random offset within a fraction of the box size to avoid strict center
+            offset_x = random.uniform(-0.5, 0.5) * box_w
+            offset_y = random.uniform(-0.5, 0.5) * box_h
+
+            # Calculate top-left corner of the erasing region near the center
+            x1 = int(x + offset_x - erase_w / 2)
+            y1 = int(y + offset_y - erase_h / 2)
+
+            # Ensure the erasing region stays within the image boundaries
+            x1 = max(0, x1)
+            y1 = max(0, y1)
+            x2 = min(w, x1 + erase_w)
+            y2 = min(h, y1 + erase_h)
+
+            # Calculate the mean value inside the bounding box
+            # x1_box = max(0, int(x - box_w / 2))
+            # y1_box = max(0, int(y - box_h / 2))
+            # x2_box = min(w, int(x + box_w / 2))
+            # y2_box = min(h, int(y + box_h / 2))
+            # Extract the region inside the bounding box
+            # bbox_region = img[y1_box:y2_box, x1_box:x2_box, :]
+            # Calculate the mean pixel value of the bounding box region
+            # mean_value = np.mean(bbox_region, axis=(0, 1), dtype=np.float32)
+
+            # Erase the selected region by filling it with the mean value
+            img[y1:y2, x1:x2, :] = mean_value
+
+        labels["img"] = np.ascontiguousarray(img)
+        return labels
+
+
 class RandomFlip:
     """
     Applies a random horizontal or vertical flip to an image with a given probability.
