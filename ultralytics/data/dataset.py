@@ -60,6 +60,7 @@ class YOLODataset(BaseDataset):
         self.use_segments = task == "segment"
         self.use_keypoints = task == "pose"
         self.use_obb = task == "obb"
+        self.use_tags = task == "jde"
         self.data = data
         assert not (self.use_segments and self.use_keypoints), "Can not use both segments and keypoints."
         super().__init__(*args, **kwargs)
@@ -170,6 +171,16 @@ class YOLODataset(BaseDataset):
                 lb["segments"] = []
         if len_cls == 0:
             LOGGER.warning(f"WARNING ⚠️ No labels found in {cache_path}, training may not work correctly. {HELP_URL}")
+
+        if self.use_tags:
+            total_size = sum(lb['cls'].shape[0] for lb in labels)
+            global_tags = np.arange(total_size).reshape(total_size, 1)
+            start_idx = 0
+            for lb in labels:
+                N = lb["cls"].shape[0]
+                lb["tags"] = global_tags[start_idx:start_idx + N]
+                start_idx += N
+
         return labels
 
     def build_transforms(self, hyp=None):
@@ -237,7 +248,7 @@ class YOLODataset(BaseDataset):
             value = values[i]
             if k == "img":
                 value = torch.stack(value, 0)
-            if k in {"masks", "keypoints", "bboxes", "cls", "segments", "obb"}:
+            if k in {"masks", "keypoints", "bboxes", "cls", "segments", "obb", "tags"}:
                 value = torch.cat(value, 0)
             new_batch[k] = value
         new_batch["batch_idx"] = list(new_batch["batch_idx"])
