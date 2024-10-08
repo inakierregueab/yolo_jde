@@ -842,22 +842,27 @@ class Mosaic(BaseMixTransform):
             return {}
         cls = []
         instances = []
+        tags = []
         imgsz = self.imgsz * 2  # mosaic imgsz
         for labels in mosaic_labels:
             cls.append(labels["cls"])
             instances.append(labels["instances"])
+            if "tags" in labels:
+                tags.append(labels["tags"])
         # Final labels
         final_labels = {
             "im_file": mosaic_labels[0]["im_file"],
             "ori_shape": mosaic_labels[0]["ori_shape"],
             "resized_shape": (imgsz, imgsz),
             "cls": np.concatenate(cls, 0),
+            "tags": np.concatenate(tags, 0) if len(tags) else None,
             "instances": Instances.concatenate(instances, axis=0),
             "mosaic_border": self.border,
         }
         final_labels["instances"].clip(imgsz, imgsz)
         good = final_labels["instances"].remove_zero_area_boxes()
         final_labels["cls"] = final_labels["cls"][good]
+        final_labels["tags"] = final_labels["tags"][good] if len(tags) else None
         if "texts" in mosaic_labels[0]:
             final_labels["texts"] = mosaic_labels[0]["texts"]
         return final_labels
@@ -945,6 +950,8 @@ class MixUp(BaseMixTransform):
         labels["img"] = (labels["img"] * r + labels2["img"] * (1 - r)).astype(np.uint8)
         labels["instances"] = Instances.concatenate([labels["instances"], labels2["instances"]], axis=0)
         labels["cls"] = np.concatenate([labels["cls"], labels2["cls"]], 0)
+        if "tags" in labels:
+            labels["tags"] = np.concatenate([labels["tags"], labels2["tags"]], 0)
         return labels
 
 
@@ -1222,6 +1229,7 @@ class RandomPerspective:
 
         img = labels["img"]
         cls = labels["cls"]
+        tags = labels.get("tags", None)
         instances = labels.pop("instances")
         # Make sure the coord formats are right
         instances.convert_bbox(format="xyxy")
@@ -1255,6 +1263,7 @@ class RandomPerspective:
         )
         labels["instances"] = new_instances[i]
         labels["cls"] = cls[i]
+        labels["tags"] = tags[i] if tags is not None else None
         labels["img"] = img
         labels["resized_shape"] = img.shape[:2]
         return labels
@@ -2152,6 +2161,7 @@ class Format:
         img = labels.pop("img")
         h, w = img.shape[:2]
         cls = labels.pop("cls")
+        tags = labels.pop("tags", None)
         instances = labels.pop("instances")
         instances.convert_bbox(format=self.bbox_format)
         instances.denormalize(w, h)
@@ -2169,6 +2179,8 @@ class Format:
         labels["img"] = self._format_img(img)
         labels["cls"] = torch.from_numpy(cls) if nl else torch.zeros(nl)
         labels["bboxes"] = torch.from_numpy(instances.bboxes) if nl else torch.zeros((nl, 4))
+        if tags is not None:
+            labels["tags"] = torch.from_numpy(tags) if nl else torch.zeros(nl)
         if self.return_keypoint:
             labels["keypoints"] = torch.from_numpy(instances.keypoints)
             if self.normalize:
@@ -2450,6 +2462,7 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
             RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v),
             RandomFlip(direction="vertical", p=hyp.flipud),
             RandomFlip(direction="horizontal", p=hyp.fliplr, flip_idx=flip_idx),
+            BboxRandomErase(p=hyp.bbox_erase),
         ]
     )  # transforms
 
