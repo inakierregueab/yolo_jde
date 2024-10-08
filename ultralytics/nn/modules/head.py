@@ -160,6 +160,28 @@ class Detect(nn.Module):
         i = torch.arange(batch_size)[..., None]  # batch indices
         return torch.cat([boxes[i, index // nc], scores[..., None], (index % nc)[..., None].float()], dim=-1)
 
+# TODO: Review the following class
+class JDE(Detect):
+    """YOLOv8 JDE head for joint detection and embedding models."""
+
+    def __init__(self, nc=80, embed_dim=128, ch=()):
+        """Initialize the YOLO model attributes such as the number of classes, embedding dimension, and the convolution."""
+        super().__init__(nc, ch)
+        self.embed_dim = embed_dim  # embedding dimension
+
+        c4 = max(ch[0] // 4, self.embed_dim)
+        self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.embed_dim, 1)) for x in ch)
+
+    '''def forward(self, x):
+        """Return model outputs and mask coefficients if training, otherwise return outputs and mask coefficients."""
+        bs = x.shape[0]  # batch size
+
+        mc = torch.cat([self.cv4[i](x[i]).view(bs, self.nm, -1) for i in range(self.nl)], 2)  # mask coefficients
+        x = Detect.forward(self, x)
+        if self.training:
+            return x, mc,
+        return (torch.cat([x, mc], 1), p) if self.export else (torch.cat([x[0], mc], 1), (x[1], mc, p))'''
+
 
 class Segment(Detect):
     """YOLOv8 Segment head for segmentation models."""

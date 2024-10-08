@@ -261,6 +261,12 @@ class v8DetectionLoss:
         return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 
+class v8JDELoss(v8DetectionLoss):
+    # TODO: JDE loss implementation
+    def __init__(self, model):
+        super().__init__(model)
+
+
 class v8SegmentationLoss(v8DetectionLoss):
     """Criterion class for computing training losses."""
 

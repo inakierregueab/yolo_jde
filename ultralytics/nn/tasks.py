@@ -49,6 +49,7 @@ from ultralytics.nn.modules import (
     HGBlock,
     HGStem,
     ImagePoolingAttn,
+    JDE,
     Pose,
     RepC3,
     RepConv,
@@ -70,6 +71,7 @@ from ultralytics.utils.loss import (
     v8OBBLoss,
     v8PoseLoss,
     v8SegmentationLoss,
+    v8JDELoss
 )
 from ultralytics.utils.ops import make_divisible
 from ultralytics.utils.plotting import feature_visualization
@@ -256,7 +258,7 @@ class BaseModel(nn.Module):
         """
         self = super()._apply(fn)
         m = self.model[-1]  # Detect()
-        if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
+        if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect, JDE
             m.stride = fn(m.stride)
             m.anchors = fn(m.anchors)
             m.strides = fn(m.strides)
@@ -322,7 +324,7 @@ class DetectionModel(BaseModel):
 
         # Build strides
         m = self.model[-1]  # Detect()
-        if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
+        if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect, JDE
             s = 256  # 2x min stride
             m.inplace = self.inplace
 
@@ -330,7 +332,7 @@ class DetectionModel(BaseModel):
                 """Performs a forward pass through the model, handling different Detect subclass types accordingly."""
                 if self.end2end:
                     return self.forward(x)["one2many"]
-                return self.forward(x)[0] if isinstance(m, (Segment, Pose, OBB)) else self.forward(x)
+                return self.forward(x)[0] if isinstance(m, (Segment, Pose, OBB, JDE)) else self.forward(x)
 
             m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])  # forward
             self.stride = m.stride
@@ -427,6 +429,18 @@ class PoseModel(DetectionModel):
     def init_criterion(self):
         """Initialize the loss criterion for the PoseModel."""
         return v8PoseLoss(self)
+
+
+class JDEModel(DetectionModel):
+    """YOLOv8 Joint Detection and Embedding (JDE) model."""
+
+    def __init__(self, cfg="yolov8n-jde.yaml", ch=3, nc=None, verbose=True):
+        """Initialize YOLOv8 JDE model with given config and parameters."""
+        super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
+
+    def init_criterion(self):
+        """Initialize the loss criterion for the JDEModel."""
+        return v8JDELoss(self)
 
 
 class ClassificationModel(BaseModel):
@@ -1041,7 +1055,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
-        elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn, v10Detect}:
+        elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn, v10Detect, JDE}:
             args.append([ch[x] for x in f])
             if m is Segment:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
@@ -1115,7 +1129,7 @@ def guess_model_task(model):
         model (nn.Module | dict): PyTorch model or model configuration in YAML format.
 
     Returns:
-        (str): Task of the model ('detect', 'segment', 'classify', 'pose').
+        (str): Task of the model ('detect', 'segment', 'classify', 'pose', 'jde').
 
     Raises:
         SyntaxError: If the task of the model could not be determined.
@@ -1134,6 +1148,8 @@ def guess_model_task(model):
             return "pose"
         if m == "obb":
             return "obb"
+        if m == "jde":
+            return "jde"
 
     # Guess from model cfg
     if isinstance(model, dict):
@@ -1152,6 +1168,8 @@ def guess_model_task(model):
         for m in model.modules():
             if isinstance(m, Segment):
                 return "segment"
+            elif isinstance(m, JDE):
+                return "jde"
             elif isinstance(m, Classify):
                 return "classify"
             elif isinstance(m, Pose):
@@ -1166,6 +1184,8 @@ def guess_model_task(model):
         model = Path(model)
         if "-seg" in model.stem or "segment" in model.parts:
             return "segment"
+        elif "-jde" in model.stem or "jde" in model.parts:
+            return "jde"
         elif "-cls" in model.stem or "classify" in model.parts:
             return "classify"
         elif "-pose" in model.stem or "pose" in model.parts:
@@ -1178,6 +1198,6 @@ def guess_model_task(model):
     # Unable to determine task from model
     LOGGER.warning(
         "WARNING ⚠️ Unable to automatically guess model task, assuming 'task=detect'. "
-        "Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify','pose' or 'obb'."
+        "Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify','pose', 'obb' or 'jde'."
     )
     return "detect"  # assume detect
