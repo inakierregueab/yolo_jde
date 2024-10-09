@@ -172,9 +172,10 @@ class YOLODataset(BaseDataset):
         if len_cls == 0:
             LOGGER.warning(f"WARNING ⚠️ No labels found in {cache_path}, training may not work correctly. {HELP_URL}")
 
+        # Add tags for JDE training: assign unique tags to each instance in the dataset
         if self.use_tags:
             total_size = sum(lb['cls'].shape[0] for lb in labels)
-            global_tags = np.arange(total_size).reshape(total_size, 1)
+            global_tags = np.arange(1, total_size + 1).reshape(total_size, 1)
             start_idx = 0
             for lb in labels:
                 N = lb["cls"].shape[0]
